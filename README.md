@@ -1,0 +1,2 @@
+# redteamnotes
+ my notes
