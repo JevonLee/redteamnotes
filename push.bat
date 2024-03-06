@@ -1,4 +1,5 @@
+git pull
 git add .
 git status
 git commit -m "xxx"
-git push origin
+git push 
