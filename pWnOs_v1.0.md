@@ -101,6 +101,63 @@ perl 2017.pl 192.168.25.116 10000 /tmp/shell.cgi 0
 
 + web页面很容易发现了第一个lfi
 + webmin的exp利用没能想到，因为不知道版本号就不知道该用哪一个
-+ 虽然楼上lfi，但是权限不同，以致可以访问shadow
++ 虽然都是lfi，但是权限不同，以致可以访问shadow
 + 因为webmin的特殊权限，所以提权也应该想到这里
 + perl执行cgi文件也是初次了解到
+
+
+# 知识拓展  
+
+## lfi敏感文件读取  
+
+在发现lfi漏洞之后除了/etc/passwd和/etc/shadow之后，好像就不知道哪些是敏感文件，在以前的打靶练习中，靶场会给这两种特殊情况：
++ 如果扫描端口出现filtered,那可能需要knock服务，然后访问/etc/knockd.conf解开  
++ 另一种特殊的就是log文件能够解析php，如ssh的/var/log/auth.log、apache的/var/log/apache/access.log等，然后直接写shell  
+
+但是这仅仅是靶机会设立这样的入口，我们可以通过github一个叫 [Auto_wordlists](https://github.com/carlospolop/Auto_Wordlists)的项目去了解哪些是敏感文件，那么对于这个靶机，我们发现了四个账户，我们可以去读取/home/xxx/.ssh/authorized_keys，（这个是公钥，可以实现免密登录，私钥在管理员自己电脑上，公钥在服务器上，然后管理员通过私钥去和公钥进行匹配即可实现免密登录），然后通过伪随机数生成器碰撞私钥  
+
+## 用公钥信息破解私钥  
+
+首先searchsploit搜索prng（伪随机数生成器），视频里演示的是5622.txt，然后根据文本内容下载压缩包解压  
+![](img/2024-03-08-16-24-16.png)  
+
+```
+grep -lr "AAAAB3NzaC1kC3MAAACBA0gZZMCD3Im5bRnA"
+```
+-l是列出文件内容中和字符串匹配的文件，-r是递归搜索，字符串是公钥截取的一小段  
+然后再obama账户中成功匹配到公钥，去掉.pub后缀就找到了私钥  
+
+## ssh登录参数  
+
+使用密钥直接登录，并且根据提示添加了-oHostKeyAligorithms参数，但还是需要密码，证明私钥登录是失败的，我们就-vv参数可以看到更清楚的交互信息，  
+![](img/2024-03-08-16-32-27.png)  
+提示我们是公钥没有共同签名的支持，然后-oPubkey再按tab键提示，因为是加密类型不匹配，所以选择-oPubkeyAcceptedKeyTypes，然后成功登录  
+
+## 内核漏洞提权  
+
+前面我们已经发现了内核版本很低，应该可以使用内核漏洞提权，还需要注意一个点就是如果不能sudo那么suid也用不了，然后这个靶机可以使用5092.c进行编译提权  
+
+## shellshock提权  
+
+Shellshock是GNU Bourne Again Shell（BASH）中的一个漏洞，攻击者可以使用特制环境变量来运行任意命令。
+```
+bash --version
+```
+如果bash版本小于4.3那么很有可能有shellshock漏洞  
+![](img/2024-03-08-20-15-18.png)  
+```
+env x='() { :; }; echo "It is a Vuln"' bash -c date
+```
+这是一条验证shellshock的语句，前面是固定的，注意空格，bash -c是启动一个新bash，date显示日期，验证存在之后，我们就需要通过shellshock可以执行任意命令配合webmin的高权限进行一个提权  
+1. 先创建一个cgi文件，写入#/bin/bash让其能够执行bash命令，并赋予权限  
+2. 访问之前的exp 2017.pl了解其漏洞利用逻辑是通过http:ip/unauthenticated/..%01/..%01/..%01/..%01/..%01/..%01/..%01/etc/passwd这样的形式读取文件  
+3. 我们知道读取文件的方式之后，通过在http包UA头写入shellshock exp，最终exp如下  
+
+```
+curl http://10.10.10.25:10000/unauthenticated/..%01/ ..%01/..%01/..%01/..%01/..%01/..%01/..%01/home/obama/RedteamNotes.cgi -A '() { :; }; /bin/echo "obama ALL=(ALL)NOPASSWD:ALL " >> /etc/sudoers'
+``` 
+通过url访问cgi，并且修改UA头（-A参数是UA头）然后执行shellshock漏洞，因为obama账户我们是私钥登录不知道密码，所以加上NOPASSWD参数，或者可以用vmware账户进行操作，最后sudo su即可提权  
+
+## 总结  
+
+算是学到了很多新东西，逐渐加深了对lfi的利用，并且利用shellshock提权算是一种新的提权方式  
