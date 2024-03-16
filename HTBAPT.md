@@ -11,6 +11,7 @@ winlogon.exe显示登录界面，当我们登录之后，明文密码会交给ls
 ## 域内NTLM协议认证  
 
 由三种类型消息组成  
+
 + Type1（协商，Negotiate）
 + Type2（质询，Challenge）
 + Type3（认证，Authentication）
@@ -18,7 +19,8 @@ winlogon.exe显示登录界面，当我们登录之后，明文密码会交给ls
 NTLM有NTLM v1和NTLM v2两个版本，区别是Challenge值与加密算法不同。  
 NTLM是底层认证协议，需要依靠上层协议传递消息，如SMB，HTTP等。  
 以下是域内NTLM认证步骤：  
-1. 当客户端想访问某些网络资源或者请求某些服务时，需要ntlm身份认证。于是，在输入服务器账户和密码之后，客户端存储NTLM hash值，同时向服务器发送请求，该请求会生成Type1消息  
+
+1. 当客户端想访问某些网络资源或者请求某些服务时，需要ntlm身份认证。于是，在输入服务器账户和密码之后，客户端存储NTLM hash值，同时向服务器发送请求，该请求会生成Type1消息
 
 2. 经过服务端处理后，会向客户端返回Type2消息，Type2消息包含一个16位随机值（Challenge值）  
 
@@ -58,7 +60,7 @@ rpcmap.py ncacn_ip_tcp:10.129.96.60[135] -brute-uuids -brute-opnums
 ![](img/2024-03-16-10-36-47.png)  
 同时，opnum显示3和5是success，我们就去查找这个对应的方法。  
 ![](img/2024-03-16-10-44-08.png)  
-接着我们可以根据IObjectexporter::serveralive2关键词搜索有没有什么利用方式。然后发现一个github项目(https://github.com/EddieIvan01/win32api-practice/tree/master/oxid-nic-resolver)，那么这个东西的作用就是可以远程枚举网卡，随后我们查找可以再kali利用的工具，不出意外应该能枚举出ipv6地址。  
+接着我们可以根据IObjectexporter::serveralive2关键词搜索有没有什么利用方式。然后发现一个github项目[oxid-nic-resolver](https://github.com/EddieIvan01/win32api-practice/tree/master/oxid-nic-resolver)，那么这个东西的作用就是可以远程枚举网卡，随后我们查找可以再kali利用的工具，不出意外应该能枚举出ipv6地址。  
 
 ## IOXIDResolver枚举IPv6地址  
 
