@@ -3,7 +3,7 @@
 ## NTLM系统认证
 
 winlogon.exe显示登录界面，当我们登录之后，明文密码会交给lsass.exe进程，  
-然后进程会给明文密码进行mtlm hash加密随后存储到SAM文件中。  
+然后进程会给明文密码进行ntlm hash加密随后存储到SAM文件中。  
 我们用mimikatz抓取明文密码则是从lsass.exe进程抓取。  
 
 ## 域内NTLM协议认证  
